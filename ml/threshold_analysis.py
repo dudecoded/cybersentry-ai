@@ -1,38 +1,36 @@
+
 from pathlib import Path
 
+import joblib
 import pandas as pd
 
-from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
+    confusion_matrix,
+    f1_score,
     precision_score,
     recall_score,
-    f1_score,
-    confusion_matrix,
     roc_auc_score,
 )
-
-from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 from preprocessing import build_preprocessor
 
 
-# Project paths
 ROOT_DIR = Path(__file__).resolve().parent.parent
-
 TRAIN_PATH = ROOT_DIR / "dataset" / "UNSW_NB15_training-set.csv"
+RESULTS_PATH = ROOT_DIR / "ml" / "rf_threshold_results.csv"
+THRESHOLD_PATH = ROOT_DIR / "models" / "selected_threshold.txt"
 
 
 def main():
-    # 1. Load the training dataset
     print("Loading training dataset...")
-
     df = pd.read_csv(TRAIN_PATH)
 
     X = df.drop(columns=["id", "attack_cat", "label"])
     y = df["label"]
 
-    # 2. Create a validation split
     X_train, X_val, y_train, y_val = train_test_split(
         X,
         y,
@@ -44,36 +42,30 @@ def main():
     print("Training samples:", len(X_train))
     print("Validation samples:", len(X_val))
 
-    # 3. Build a fresh pipeline
     model = Pipeline(
         steps=[
             ("preprocessor", build_preprocessor()),
             (
                 "classifier",
-                LogisticRegression(
-                    max_iter=1000,
+                RandomForestClassifier(
+                    n_estimators=100,
                     class_weight="balanced",
                     random_state=42,
+                    n_jobs=-1,
                 ),
             ),
         ]
     )
 
-    # 4. Train on the training portion only
-    print("\nTraining model for threshold analysis...")
-
+    print("\nTraining Random Forest...")
     model.fit(X_train, y_train)
 
-    # 5. Get attack probabilities for validation data
     print("Calculating validation probabilities...")
-
     probabilities = model.predict_proba(X_val)[:, 1]
 
     print(f"Validation ROC-AUC: {roc_auc_score(y_val, probabilities):.4f}")
 
-    # 6. Compare classification thresholds
-    thresholds = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80]
-
+    thresholds = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
     results = []
 
     for threshold in thresholds:
@@ -85,46 +77,51 @@ def main():
             labels=[0, 1],
         ).ravel()
 
-        precision = precision_score(
-            y_val,
-            predictions,
-            zero_division=0,
-        )
-
-        recall = recall_score(
-            y_val,
-            predictions,
-            zero_division=0,
-        )
-
-        f1 = f1_score(
-            y_val,
-            predictions,
-            zero_division=0,
-        )
-
-        false_positive_rate = fp / (fp + tn) if (fp + tn) else 0
+        precision = precision_score(y_val, predictions, zero_division=0)
+        recall = recall_score(y_val, predictions, zero_division=0)
+        f1 = f1_score(y_val, predictions, zero_division=0)
+        fpr = fp / (fp + tn) if (fp + tn) else 0
 
         results.append(
             {
                 "Threshold": threshold,
-                "Precision": round(precision, 4),
-                "Recall": round(recall, 4),
-                "F1 Score": round(f1, 4),
-                "False Positive Rate": round(false_positive_rate, 4),
+                "Precision": precision,
+                "Recall": recall,
+                "F1 Score": f1,
+                "False Positive Rate": fpr,
+                "True Negatives": tn,
                 "False Positives": fp,
                 "False Negatives": fn,
+                "True Positives": tp,
             }
         )
 
-    # 7. Display results
     results_df = pd.DataFrame(results)
+    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    results_df.to_csv(RESULTS_PATH, index=False)
 
-    print("\n" + "=" * 90)
-    print("CYBERSENTRY AI - THRESHOLD ANALYSIS")
-    print("=" * 90)
+    # Balanced operating point: maximize F1 on validation data.
+    best_row = results_df.loc[results_df["F1 Score"].idxmax()]
+    selected_threshold = float(best_row["Threshold"])
 
-    print(results_df.to_string(index=False))
+    THRESHOLD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    THRESHOLD_PATH.write_text(
+        f"{selected_threshold:.2f}\n",
+        encoding="utf-8",
+    )
+
+    print("\n=== Random Forest Threshold Analysis ===")
+    print(results_df.round(4).to_string(index=False))
+
+    print("\n=== Selected Validation Threshold ===")
+    print(f"Threshold: {selected_threshold:.2f}")
+    print(f"Precision: {best_row['Precision']:.4f}")
+    print(f"Recall: {best_row['Recall']:.4f}")
+    print(f"F1 Score: {best_row['F1 Score']:.4f}")
+    print(f"False Positive Rate: {best_row['False Positive Rate']:.4f}")
+
+    print(f"\nResults saved to: {RESULTS_PATH}")
+    print(f"Threshold saved to: {THRESHOLD_PATH}")
 
 
 if __name__ == "__main__":

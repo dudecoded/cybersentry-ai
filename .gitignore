@@ -234,3 +234,9 @@ models/
 
 # Generated reports
 reports/
+# Temporary model evaluation scripts
+test_real_prediction.py
+check_test_performance.py
+
+# Generated threshold analysis results
+ml/rf_threshold_results.csv
