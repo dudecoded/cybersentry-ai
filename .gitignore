@@ -218,3 +218,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CyberSentry AI - Dataset files
+dataset/*
+!dataset/README.md
+
+# Environment variables
+.env.*
+!.env.example
+
+# Trained ML models
+models/
+*.joblib
+*.pkl
+
+# Generated reports
+reports/
