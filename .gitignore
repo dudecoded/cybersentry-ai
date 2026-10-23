@@ -240,3 +240,7 @@ check_test_performance.py
 
 # Generated threshold analysis results
 ml/rf_threshold_results.csv
+# Frontend dependencies and build output
+node_modules/
+frontend/dist/
+frontend/.vite/
