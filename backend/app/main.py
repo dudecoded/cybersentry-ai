@@ -2,14 +2,20 @@ from fastapi import FastAPI, HTTPException
 
 from app.schemas import PredictionRequest, PredictionResponse
 from app.services.prediction import predict_attack
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="CyberSentry AI",
     description="Network intrusion detection API",
     version="1.0.0",
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def home():
