@@ -7,7 +7,7 @@ import pandas as pd
 ROOT_DIR = Path(__file__).resolve().parents[3]
 MODEL_PATH = ROOT_DIR / "models" / "random_forest.joblib"
 
-THRESHOLD = 0.40
+THRESHOLD = 0.50
 
 EXPECTED_FEATURES = [
     "dur", "proto", "service", "state", "spkts", "dpkts",

@@ -3,7 +3,7 @@ import {
   Activity, ArrowUpRight, CheckCircle2, ChevronDown,
   CircleHelp, Clock3, Cpu, Fingerprint, Gauge, Globe2, LockKeyhole,
   Menu, Radar, RefreshCw, ScanLine, Shield, ShieldAlert, ShieldCheck, Siren,
-  Sparkles, Wifi, X, Zap
+  Sparkles, Wifi, X, Zap, FileUp, Download
 } from "lucide-react";
 import "./App.css";
 
@@ -127,6 +127,10 @@ function App() {
  
   const [mobileNav, setMobileNav] = useState(false);
   const [lastScan, setLastScan] = useState(null);
+  const [batchFile, setBatchFile] = useState(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState("");
+  const [batchResult, setBatchResult] = useState(null);
 
   const fieldCount = useMemo(() => Object.keys(features).length, [features]);
 
@@ -239,6 +243,57 @@ function App() {
     setError("");
   }
 
+  async function runBatchPrediction(event) {
+    event.preventDefault();
+    if (!batchFile) {
+      setBatchError("Choose a CSV file before starting batch prediction.");
+      return;
+    }
+
+    setBatchLoading(true);
+    setBatchError("");
+    setBatchResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", batchFile);
+
+      const response = await fetch(`${API_BASE}/predict/csv`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: formData,
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        const detail = typeof data.detail === "string"
+          ? data.detail
+          : data.detail?.message || JSON.stringify(data.detail || `Request failed (${response.status})`);
+        throw new Error(detail);
+      }
+
+      setBatchResult(data);
+    } catch (err) {
+      setBatchError(err.message || "Could not upload the CSV file.");
+    } finally {
+      setBatchLoading(false);
+      checkHealth();
+    }
+  }
+
+  function downloadBatchResults() {
+    if (!batchResult) return;
+    const blob = new Blob([JSON.stringify(batchResult, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "cybersentry-batch-results.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   const isAttack = result?.prediction === 1;
   const probability = result?.attack_probability ?? 0;
 
@@ -257,6 +312,7 @@ function App() {
         <nav className={mobileNav ? "nav-links nav-open" : "nav-links"}>
           <a href="#overview" onClick={() => setMobileNav(false)}>Overview</a>
           <a href="#analysis" onClick={() => setMobileNav(false)}>Traffic analysis</a>
+          <a href="#batch-analysis" onClick={() => setMobileNav(false)}>CSV batch</a>
           <a href="#how-it-works" onClick={() => setMobileNav(false)}>How it works</a>
         </nav>
         <div className="topbar-right">
@@ -342,7 +398,7 @@ function App() {
               <h2>Inspect a traffic <span>record.</span></h2>
               <p>Enter a single network-flow record using the 42 features expected by your trained model.</p>
             </div>
-            <div className="workspace-label"><LockKeyhole size={14} /> LOCAL API · NO FILE UPLOAD</div>
+            <div className="workspace-label"><LockKeyhole size={14} /> SINGLE RECORD</div>
           </div>
 
           <div className="analysis-layout">
@@ -400,6 +456,86 @@ function App() {
               <div className="help-card"><div className="help-icon"><Sparkles size={17} /></div><div><strong>Designed for investigation</strong><p>Use trusted flow telemetry and investigate flagged records with your wider security tooling.</p><a href="#how-it-works">How scoring works <ArrowUpRight size={13} /></a></div></div>
             </aside>
           </div>
+        </section>
+
+        <section className="analysis-section" id="batch-analysis">
+          <div className="section-heading">
+            <div>
+              <div className="eyebrow"><span className="eyebrow-pulse" /> BATCH ANALYSIS</div>
+              <h2>Scan multiple <span>flows.</span></h2>
+              <p>Upload a CSV containing one network-flow record per row and the 42 feature columns required by the model.</p>
+            </div>
+            <div className="workspace-label"><FileUp size={14} /> CSV · MAX 10 MB</div>
+          </div>
+
+          <form className="feature-panel" onSubmit={runBatchPrediction}>
+            <div className="panel-heading">
+              <div className="panel-title-icon"><FileUp size={17} /></div>
+              <div><h3>CSV batch prediction</h3><p>Predictions are returned for each valid row</p></div>
+            </div>
+            <div className="notice">
+              <CircleHelp size={15} />
+              <span>Use a CSV with the exact model feature columns. Dataset labels such as <code>label</code>, <code>attack_cat</code>, and <code>id</code> should not be included.</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", marginTop: "18px" }}>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                aria-label="Choose a CSV file for batch prediction"
+                onChange={(event) => {
+                  setBatchFile(event.target.files?.[0] || null);
+                  setBatchError("");
+                  setBatchResult(null);
+                }}
+                style={{ flex: "1 1 260px", minWidth: 0, padding: "12px", border: "1px solid var(--border, #263342)", borderRadius: "10px", background: "rgba(8, 15, 24, 0.7)", color: "inherit" }}
+              />
+              <button className="button-primary scan-button" type="submit" disabled={batchLoading || !batchFile}>
+                {batchLoading ? <><RefreshCw className="spin" size={16} /> Processing CSV…</> : <><FileUp size={16} /> Analyze CSV <ArrowUpRight size={16} /></>}
+              </button>
+            </div>
+            {batchFile && <p style={{ marginTop: "10px", fontSize: "0.85rem", opacity: 0.8 }}>Selected: {batchFile.name} · {(batchFile.size / 1024).toFixed(1)} KB</p>}
+            {batchError && <div className="error-banner" role="alert"><ShieldAlert size={16} /><span>{batchError}</span></div>}
+          </form>
+
+          {batchResult && (
+            <div className="feature-panel" style={{ marginTop: "20px" }}>
+              <div className="panel-heading" style={{ flexWrap: "wrap" }}>
+                <div className="panel-title-icon"><ShieldCheck size={17} /></div>
+                <div><h3>Batch results</h3><p>Review each model prediction; flagged records need human investigation.</p></div>
+                <button type="button" className="text-button" onClick={downloadBatchResults}><Download size={14} /> Export JSON</button>
+              </div>
+              <div className="metrics-grid" style={{ marginTop: "16px" }}>
+                <article className="metric-card"><div className="metric-meta"><span>Total records</span></div><div className="metric-value">{batchResult.total_records}</div></article>
+                <article className="metric-card"><div className="metric-meta"><span>Successful</span></div><div className="metric-value text-online">{batchResult.successful_predictions}</div></article>
+                <article className="metric-card"><div className="metric-meta"><span>Failed</span></div><div className="metric-value text-offline">{batchResult.failed_predictions}</div></article>
+                <article className="metric-card"><div className="metric-meta"><span>Attack flags</span></div><div className="metric-value">{batchResult.results.filter((item) => item.status === "success" && item.prediction === 1).length}</div></article>
+              </div>
+              <div style={{ overflowX: "auto", marginTop: "20px" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.9rem" }}>
+                  <thead>
+                    <tr>
+                      { ["CSV row", "Status", "Classification", "Attack probability", "Severity", "Details"].map((heading) => (
+                        <th key={heading} style={{ padding: "12px", borderBottom: "1px solid var(--border, #263342)", whiteSpace: "nowrap", opacity: 0.75 }}>{heading}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchResult.results.map((item, index) => (
+                      <tr key={`${item.row ?? index}-${index}`}>
+                        <td style={{ padding: "12px", borderBottom: "1px solid rgba(128, 148, 168, 0.16)" }}>{item.row ?? "—"}</td>
+                        <td style={{ padding: "12px", borderBottom: "1px solid rgba(128, 148, 168, 0.16)" }}>{item.status || "success"}</td>
+                        <td style={{ padding: "12px", borderBottom: "1px solid rgba(128, 148, 168, 0.16)" }}>{item.result || "—"}</td>
+                        <td style={{ padding: "12px", borderBottom: "1px solid rgba(128, 148, 168, 0.16)" }}>{typeof item.attack_probability === "number" ? `${(item.attack_probability * 100).toFixed(2)}%` : "—"}</td>
+                        <td style={{ padding: "12px", borderBottom: "1px solid rgba(128, 148, 168, 0.16)" }}>{item.severity || "—"}</td>
+                        <td style={{ padding: "12px", borderBottom: "1px solid rgba(128, 148, 168, 0.16)", minWidth: "180px" }}>{item.error || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="result-disclaimer" style={{ marginTop: "14px" }}><CircleHelp size={14} /> Predictions are model estimates, not proof of malicious activity. Validate flagged traffic using additional evidence.</p>
+            </div>
+          )}
         </section>
 
         <section className="how-section" id="how-it-works">
